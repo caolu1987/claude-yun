@@ -16,6 +16,10 @@ import urllib.request
 import webbrowser
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Output redirected to a file or pipe on Windows defaults to the ANSI code page; keep Chinese printable.
+for _stream in (sys.stdout, sys.stderr):
+    if _stream is not None and hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 from paths import MODELS_DIR, OUTPUT_DIR, UPLOAD_DIR  # noqa: E402
 

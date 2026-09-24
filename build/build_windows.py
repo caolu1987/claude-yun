@@ -41,6 +41,11 @@ MSVC_DLLS = [
 PIP_WIN = ["--only-binary=:all:", "--platform", "win_amd64", "--python-version", "3.11", "--implementation", "cp"]
 
 
+# CI consoles on Windows default to cp1252, which cannot print the Chinese log lines.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+
 def log(msg):
     print(f"==> {msg}", flush=True)
 
