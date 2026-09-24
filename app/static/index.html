@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>本地音频转文字</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #fff; --text: #1f2328; --muted: #656d76; --line: #d8dee4;
+    --accent: #2563eb; --accent-soft: #e8efff; --ok: #1a7f37; --err: #cf222e; --warn: #9a6700;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.6 "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px; margin-bottom: 16px; }
+  .status { display: flex; align-items: center; gap: 10px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--warn); flex: none; }
+  .dot.ready { background: var(--ok); } .dot.error { background: var(--err); }
+  .status small { color: var(--muted); display: block; }
+  .drop { border: 2px dashed var(--line); border-radius: 10px; padding: 28px 16px; text-align: center;
+          cursor: pointer; transition: .15s; color: var(--muted); }
+  .drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+  .drop strong { display: block; font-size: 17px; color: var(--text); margin-bottom: 4px; }
+  .picked { margin: 12px 0 0; padding: 0; list-style: none; font-size: 14px; }
+  .picked li { display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); padding: 4px 0; }
+  .picked button { border: 0; background: none; color: var(--err); cursor: pointer; }
+  .opts { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-top: 14px; }
+  select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  .btn { font: inherit; border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 6px 14px; cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; padding: 8px 22px; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .upload-bar { height: 6px; background: var(--line); border-radius: 3px; margin-top: 12px; overflow: hidden; display: none; }
+  .upload-bar div { height: 100%; width: 0; background: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { color: var(--muted); font-weight: normal; }
+  td.name { word-break: break-all; }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 4px; min-width: 120px; }
+  .bar div { height: 100%; background: var(--accent); }
+  .s-done { color: var(--ok); } .s-error { color: var(--err); } .s-cancelled { color: var(--muted); }
+  a.dl { margin-right: 8px; color: var(--accent); text-decoration: none; font-weight: 600; }
+  .empty { color: var(--muted); text-align: center; padding: 16px; }
+  .note { color: var(--muted); font-size: 13px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>本地音频转文字</h1>
+  <p class="sub">全部在本机离线处理，音频不会上传到任何服务器。</p>
+
+  <div class="card status">
+    <span class="dot" id="dot"></span>
+    <div><span id="status-text">正在连接…</span><small id="status-detail"></small></div>
+  </div>
+
+  <div class="card">
+    <div class="drop" id="drop">
+      <strong>把音频或视频文件拖到这里</strong>
+      或点击选择文件（支持 mp3、wav、m4a、flac、mp4、mkv 等，可一次选多个）
+    </div>
+    <input type="file" id="file" multiple accept="audio/*,video/*,.mp3,.wav,.m4a,.flac,.ogg,.opus,.aac,.wma,.amr,.mp4,.mkv,.mov,.avi,.webm" hidden>
+    <ul class="picked" id="picked"></ul>
+    <div class="opts">
+      <label>音频语言：<select id="language"></select></label>
+      <label title="自动跳过静音片段，减少乱码和重复"><input type="checkbox" id="vad" checked> 过滤静音（推荐）</label>
+    </div>
+    <div class="row" style="margin-top:16px">
+      <span class="note">知道音频语言时直接选上，识别更准、更快。</span>
+      <button class="btn primary" id="start" disabled>开始转写</button>
+    </div>
+    <div class="upload-bar" id="upload-bar"><div></div></div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="margin-bottom:8px">
+      <strong>任务列表</strong>
+      <span>
+        <button class="btn" id="open-output">打开结果文件夹</button>
+        <button class="btn" id="clear">清除已完成</button>
+      </span>
+    </div>
+    <table>
+      <thead><tr><th>文件</th><th style="width:210px">状态</th><th style="width:150px">下载</th><th style="width:60px"></th></tr></thead>
+      <tbody id="jobs"><tr><td colspan="4" class="empty">还没有任务</td></tr></tbody>
+    </table>
+    <p class="note" id="output-dir"></p>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let picked = [];
+let langNames = {};
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+}
+function fmtSize(n) {
+  return n > 1 << 30 ? (n / (1 << 30)).toFixed(1) + " GB" : n > 1 << 20 ? (n / (1 << 20)).toFixed(1) + " MB" : Math.ceil(n / 1024) + " KB";
+}
+function fmtTime(s) {
+  if (s == null) return "";
+  s = Math.round(s);
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+  return (h ? h + "小时" : "") + (h || m ? m + "分" : "") + sec + "秒";
+}
+
+function renderPicked() {
+  $("picked").innerHTML = picked.map((f, i) =>
+    `<li><span>${esc(f.name)}（${fmtSize(f.size)}）</span><button data-i="${i}">移除</button></li>`).join("");
+  $("start").disabled = picked.length === 0;
+}
+function addFiles(list) {
+  for (const f of list) picked.push(f);
+  renderPicked();
+}
+$("picked").onclick = (e) => {
+  if (e.target.dataset.i !== undefined) { picked.splice(+e.target.dataset.i, 1); renderPicked(); }
+};
+$("drop").onclick = () => $("file").click();
+$("file").onchange = (e) => { addFiles(e.target.files); e.target.value = ""; };
+["dragenter", "dragover"].forEach((t) => $("drop").addEventListener(t, (e) => { e.preventDefault(); $("drop").classList.add("over"); }));
+["dragleave", "drop"].forEach((t) => $("drop").addEventListener(t, (e) => { e.preventDefault(); $("drop").classList.remove("over"); }));
+$("drop").addEventListener("drop", (e) => addFiles(e.dataTransfer.files));
+
+$("start").onclick = () => {
+  if (!picked.length) return;
+  const form = new FormData();
+  picked.forEach((f) => form.append("files", f, f.name));
+  form.append("language", $("language").value);
+  form.append("vad", $("vad").checked ? "true" : "false");
+  const bar = $("upload-bar"), inner = bar.firstElementChild;
+  bar.style.display = "block"; inner.style.width = "0";
+  $("start").disabled = true; $("start").textContent = "正在导入…";
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/jobs");
+  xhr.upload.onprogress = (e) => { if (e.lengthComputable) inner.style.width = (e.loaded / e.total * 100) + "%"; };
+  xhr.onloadend = () => {
+    bar.style.display = "none"; $("start").textContent = "开始转写";
+    if (xhr.status === 200) { picked = []; renderPicked(); refreshJobs(); }
+    else { alert("提交失败：" + (xhr.responseText || xhr.status)); $("start").disabled = false; }
+  };
+  xhr.send(form);
+};
+
+$("open-output").onclick = () => fetch("/api/open-output", {method: "POST"});
+$("clear").onclick = () => fetch("/api/jobs/clear", {method: "POST"}).then(refreshJobs);
+$("jobs").onclick = (e) => {
+  const id = e.target.dataset.cancel;
+  if (id) fetch(`/api/jobs/${id}/cancel`, {method: "POST"}).then(refreshJobs);
+};
+
+const STATUS = {queued: "排队中", running: "识别中", done: "完成", error: "失败", cancelled: "已取消"};
+function renderJobs(jobs) {
+  if (!jobs.length) { $("jobs").innerHTML = '<tr><td colspan="4" class="empty">还没有任务</td></tr>'; return; }
+  $("jobs").innerHTML = jobs.slice().reverse().map((j) => {
+    let state = `<span class="s-${j.status}">${esc(j.status === "running" ? j.message : j.message || STATUS[j.status])}</span>`;
+    if (j.status === "running") {
+      state += ` ${Math.floor(j.progress * 100)}%<div class="bar"><div style="width:${j.progress * 100}%"></div></div>`;
+    } else if (j.status === "done") {
+      const lang = j.detected_language ? (langNames[j.detected_language] || j.detected_language) : "";
+      state += `<br><small>${lang ? "语言：" + esc(lang) + "，" : ""}时长 ${fmtTime(j.duration)}，用时 ${fmtTime(j.elapsed)}</small>`;
+    }
+    const dl = j.status === "done"
+      ? Object.keys(j.outputs).map((f) => `<a class="dl" href="/api/jobs/${j.id}/download/${f}">${f.toUpperCase()}</a>`).join("")
+      : "";
+    const cancel = j.status === "queued" || j.status === "running"
+      ? `<button class="btn" data-cancel="${j.id}">取消</button>` : "";
+    return `<tr><td class="name">${esc(j.filename)}</td><td>${state}</td><td>${dl}</td><td>${cancel}</td></tr>`;
+  }).join("");
+}
+
+async function refreshJobs() {
+  try { renderJobs(await (await fetch("/api/jobs")).json()); } catch (e) {}
+}
+async function refreshInfo() {
+  try {
+    const info = await (await fetch("/api/info")).json();
+    const eng = info.engine;
+    $("dot").className = "dot " + eng.state;
+    $("status-text").textContent = eng.message;
+    $("status-detail").textContent = eng.fallback_reason || "";
+    if (!$("language").options.length) {
+      $("language").innerHTML = info.languages.map((l) => `<option value="${l.code}">${esc(l.name)}</option>`).join("");
+      info.languages.forEach((l) => langNames[l.code] = l.name);
+      $("output-dir").textContent = "结果同时保存在：" + info.output_dir;
+    }
+    return eng.state;
+  } catch (e) {
+    $("dot").className = "dot error";
+    $("status-text").textContent = "连接不上程序，请确认黑色窗口没有被关闭。";
+    return "error";
+  }
+}
+
+refreshInfo();
+refreshJobs();
+setInterval(refreshJobs, 1000);
+setInterval(refreshInfo, 3000);
+</script>
+</body>
+</html>

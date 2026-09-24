@@ -1,0 +1,2 @@
+*.bat eol=crlf
+build/package/README.txt eol=crlf

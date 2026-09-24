@@ -1,0 +1,64 @@
+name: Build Windows package
+
+on:
+  push:
+    branches: [main, "claude/**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r build/requirements-win.txt pytest httpx
+      - run: python -m pytest -q tests
+
+  build:
+    needs: test
+    # The package is ~4 GB; build it on pushes and manual runs, not for every PR update.
+    if: github.event_name != 'pull_request'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install build tools
+        run: pip install huggingface_hub
+      - name: Build package
+        run: python build/build_windows.py --out dist
+
+      - name: Check CUDA DLLs load
+        shell: python
+        run: |
+          import ctypes, os
+          cuda = os.path.abspath(r"dist\LocalTranscriber\runtime\cuda")
+          os.add_dll_directory(cuda)
+          os.environ["PATH"] = cuda + os.pathsep + os.environ["PATH"]
+          for name in ["cublasLt64_12.dll", "cublas64_12.dll", "cudnn64_9.dll", "cudnn_graph64_9.dll",
+                       "cudnn_ops64_9.dll", "cudnn_cnn64_9.dll", "cudnn_heuristic64_9.dll",
+                       "cudnn_engines_precompiled64_9.dll"]:
+              ctypes.WinDLL(os.path.join(cuda, name))
+              print("ok", name)
+
+      - name: Self-test with the embedded Python (CPU; runners have no GPU)
+        working-directory: dist/LocalTranscriber
+        run: .\python\python.exe app\main.py --self-test
+
+      - name: Remove self-test leftovers
+        shell: bash
+        run: rm -rf dist/LocalTranscriber/tmp
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalTranscriber-win-x64-nvidia
+          path: dist/LocalTranscriber
+          retention-days: 30
