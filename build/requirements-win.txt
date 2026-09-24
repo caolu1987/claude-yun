@@ -1,0 +1,8 @@
+# Python packages installed into the embedded runtime (Windows x64, CPython 3.11).
+# ctranslate2 4.8.2 is built against CUDA 12.8 and cuDNN 9.10; the CUDA DLLs are pinned in build_windows.py.
+faster-whisper==1.2.1
+ctranslate2==4.8.2
+fastapi==0.141.1
+uvicorn==0.53.0
+python-multipart==0.0.32
+numpy==2.4.6
